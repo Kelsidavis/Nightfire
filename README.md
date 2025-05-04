@@ -16,12 +16,7 @@ Your job: **Hold the line.**
 ---
 
 ## 🎞️ Storyline
-
-> The year is **3047**. The Nightfire Initiative has fallen.  
-> Communication is lost. Orbital platforms are silenced. The enemy has breached the core sectors.  
->  
-> **You**, the last surviving commander, scramble your battered starfighter and break atmosphere.  
->  
+  
 > Outnumbered. Outgunned. Out of time.
 
 X-Wings, A-Wings, and Y-Wings descend in aggressive squadrons with new unpredictable tactics: zigzags, orbiting loops, and spirals. But you’ve flown through worse.
