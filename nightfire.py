@@ -5,18 +5,21 @@ import random
 
 pygame.init()
 
+volume = .5
+
 WIDTH, HEIGHT = 800, 600
 FPS = 60
 STAR_COUNT = 200
 THRUST = 0.1
 FRICTION = 0.99
 ROTATE_SPEED = 3
-LASER_SPEED = 10
-ENEMY_LASER_SPEED = 4
-ENEMY_FIRE_INTERVAL = 90
+LASER_SPEED = 15
 SPRITE_OFFSET = 90
 STARTING_HP = 20
-DAMAGE_PER_HIT = 3
+# How many points to get repairs
+REPAIRS_POINTS = 10
+# How many HP each repair cycle
+REPAIRS_HEALTH = 10
 
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Nightfire: The Last Command")
@@ -33,8 +36,19 @@ awing_img = pygame.transform.scale(pygame.image.load("assets/awing.png").convert
 ywing_img = pygame.transform.rotate(ywing_img, 180)
 xwing_img = pygame.transform.rotate(xwing_img, 180)
 awing_img = pygame.transform.rotate(awing_img, 180)
-enemy_ships = [ywing_img, xwing_img, awing_img]
-
+A_WING = 0
+X_WING = 1
+Y_WING = 2
+enemy_types =         [A_WING, X_WING, Y_WING]
+enemy_minspeed =      [  2.25,      1,     .5]
+enemy_maxspeed =      [   3.5,      2,      1]
+enemy_fire_interval = [    60,     45,     90]
+enemy_laser_speed =   [    12,      6,      4]
+enemy_laser_damage =  [     2,      4,      8]
+enemy_squadrons    =   ['Blue',  'Red', 'Gold']
+enemy_laser_color =   [(255,255,50), (255,50,50), (150, 150, 255)]
+enemy_img = [awing_img, xwing_img, ywing_img]
+enemy_pilots = [' Leader, no!', ' One under fire!', ' Two losing integrity!', ' Three watch those turbolasers!', ' Four Ahehghghehhgh!', ' Five they came from behind!']
 ship_world_x, ship_world_y = 0, 0
 ship_angle = 0
 vel_x, vel_y = 0, 0
@@ -46,17 +60,22 @@ stars = [(random.randint(-2000, 2000), random.randint(-2000, 2000)) for _ in ran
 lasers = []
 enemy_lasers = []
 enemies = []
-enemy_spawn_timer = 0
+# Start with some enemies right off
+enemy_spawn_timer = 300
 
 class EnemyShip:
     def __init__(self):
-        self.image = random.choice(enemy_ships)
+        self.type = random.choice(enemy_types)
+        squadron = enemy_squadrons[self.type]
+        pilot = random.choice(enemy_pilots)
+        self.name = squadron + pilot
+        self.image = enemy_img[self.type]
         self.x = ship_world_x + random.randint(-WIDTH//2, WIDTH//2)
         self.y = ship_world_y - HEIGHT - random.randint(60, 300)
-        self.speed = random.uniform(1, 2)
+        self.speed = random.uniform(enemy_minspeed[self.type], enemy_maxspeed[self.type])
         self.exploding = False
         self.timer = 0
-        self.fire_timer = random.randint(30, ENEMY_FIRE_INTERVAL)
+        self.fire_timer = random.randint(30, enemy_fire_interval[self.type])
 
     def update(self):
         if self.exploding:
@@ -67,7 +86,7 @@ class EnemyShip:
             self.fire_timer -= 1
             if self.fire_timer <= 0:
                 self.fire()
-                self.fire_timer = ENEMY_FIRE_INTERVAL
+                self.fire_timer = enemy_fire_interval[self.type]
             return abs(self.y - ship_world_y) < HEIGHT + 100
 
     def fire(self):
@@ -81,7 +100,10 @@ class EnemyShip:
         enemy_lasers.append({
             "x": self.x + self.image.get_width() // 2,
             "y": self.y + self.image.get_height(),
-            "angle": angle
+            "angle": angle,
+            "laser_speed": enemy_laser_speed[self.type],
+            "color" : enemy_laser_color[self.type],
+            "damage" : enemy_laser_damage[self.type],
         })
 
     def draw(self, surface, offset_x, offset_y):
@@ -91,13 +113,47 @@ class EnemyShip:
             pygame.draw.circle(surface, (255, 0, 0), (cx, cy), 20)
         else:
             surface.blit(self.image, (self.x - offset_x, self.y - offset_y))
+
+def laser_turrets(hp):
+    if hp < 15:
+        return 1
+    if hp < 50:
+        return 3
+    if hp < 70:
+        return 5
+    if hp < 101:
+        return 7
+
+def laser_accuracy(hp):
+    if hp < 35:
+        return random.choice((-15,-10,-5,0,5,10,15))
+    if hp < 65:
+        return random.choice((-10,-5,0,0,0,5,10))
+    if hp < 101:
+        return 0
+
+def laser_recycle(hp):
+    if hp < 20:
+        return 60
+    if hp < 40:
+        return 45
+    if hp < 60:
+        return 30
+    if hp < 80:
+        return 20
+    if hp < 101:
+        return 15
+
 def run_game():
     paused = False
-    pygame.mixer.music.stop()
-    pygame.mixer.music.load('assets/saphire.mp3')
-    pygame.mixer.music.play(-1)
     global ship_world_x, ship_world_y, vel_x, vel_y, ship_angle, score, hp, enemy_spawn_timer
     running = True
+    radio_call = ''
+    radio_call_timer = 0
+    repairs_counter = 0
+    repairs_timer = 0
+    repairs_report = ''
+    laser_delay = 0
 
     while running:
         dt = clock.tick(FPS)
@@ -125,13 +181,34 @@ def run_game():
             angle_rad = math.radians(ship_angle + SPRITE_OFFSET)
             vel_x += math.cos(angle_rad) * THRUST
             vel_y += math.sin(angle_rad) * THRUST
+        if keys[pygame.K_MINUS]:
+            volume = volume - .05
+            if volume < 0:
+                volume = 0
+            pygame.mixer.music.set_volume(volume)
+        if keys[pygame.K_PLUS]:
+            volume = volume + .05
+            if volume > 1:
+                volume = 1
+            pygame.mixer.music.set_volume(volume)
 
-        if keys[pygame.K_SPACE] and len(lasers) < 10:
-            for offset in [-15, 15]:
-                angle_rad = math.radians(ship_angle + SPRITE_OFFSET)
-                lx = ship_world_x + math.cos(angle_rad) * offset
-                ly = ship_world_y + math.sin(angle_rad) * offset
-                lasers.append({'x': lx, 'y': ly, 'angle': ship_angle + SPRITE_OFFSET})
+        if laser_delay > 0:
+            laser_delay -= 1
+        if laser_delay == 0:
+            laser_status = (50, 255, 50)
+        elif laser_delay < (laser_recycle(hp) * .25):
+            laser_status = (255,255, 50)
+        else:
+            laser_status = (255, 50, 50)
+
+        if keys[pygame.K_SPACE] and len(lasers) < laser_turrets(hp):
+            if laser_delay == 0:
+                laser_delay = laser_recycle(hp)
+                for offset in [-10, 10]:
+                    angle_rad = -math.radians(ship_angle + SPRITE_OFFSET)
+                    lx = ship_world_x + math.sin(angle_rad) * offset
+                    ly = ship_world_y + math.cos(angle_rad) * offset
+                    lasers.append({'x': lx, 'y': ly, 'angle': ship_angle + SPRITE_OFFSET + laser_accuracy(hp)})
 
         vel_x *= FRICTION
         vel_y *= FRICTION
@@ -168,24 +245,28 @@ def run_game():
                 pygame.draw.circle(screen, (0, 255, 0), (int(lx), int(ly)), 4)
 
         for blaster in enemy_lasers[:]:
-            blaster['x'] += math.cos(blaster['angle']) * ENEMY_LASER_SPEED
-            blaster['y'] += math.sin(blaster['angle']) * ENEMY_LASER_SPEED
+            blaster['x'] += math.cos(blaster['angle']) * blaster['laser_speed']
+            blaster['y'] += math.sin(blaster['angle']) * blaster['laser_speed']
             sx = blaster['x'] - offset_x
             sy = blaster['y'] - offset_y
             if not (0 <= sx <= WIDTH and 0 <= sy <= HEIGHT):
                 enemy_lasers.remove(blaster)
             else:
-                pygame.draw.circle(screen, (255, 50, 50), (int(sx), int(sy)), 3)
+                pygame.draw.circle(screen, blaster['color'], (int(sx), int(sy)), 3)
                 if abs(blaster['x'] - ship_world_x) < 15 and abs(blaster['y'] - ship_world_y) < 15:
-                    hp = max(0, hp - DAMAGE_PER_HIT)
+                    hp = max(0, hp - blaster['damage'])
                     enemy_lasers.remove(blaster)
 
         non_exploding_enemies = [e for e in enemies if not e.exploding]
         current_max_enemies = max(5, 5 * (2 ** (score // 10)))
+        # Enemies spawn every 30 ticks until the first 20 are killed, then they spawn faster and faster
+        current_enemy_timer = min(30, 60 * (2 ** ( (0-current_max_enemies)/20)))
+        # but no faster than every 5 ticks (about 70 kills)
+        current_enemy_timer = max(current_enemy_timer, 5)
         enemy_spawn_timer += 1
-        if enemy_spawn_timer > 60 and len(non_exploding_enemies) < current_max_enemies:
+        if enemy_spawn_timer > current_enemy_timer and len(non_exploding_enemies) < current_max_enemies:
             enemies.append(EnemyShip())
-            enemy_spawn_timer = 0
+            enemy_spawn_timer = enemy_spawn_timer - current_enemy_timer
 
         for enemy in enemies[:]:
             if not enemy.update():
@@ -201,13 +282,48 @@ def run_game():
                     enemy.timer = 30
                     lasers.remove(laser)
                     score += 1
+                    repairs_counter += 1
+                    radio_call = enemy.name
+                    radio_call_timer = 90
                     break
             enemy.draw(screen, offset_x, offset_y)
+        if radio_call_timer > 0:
+            radio_call_timer -= 1
+        else:
+            radio_call = ''
+
+        if repairs_counter >= REPAIRS_POINTS:
+            repairs_counter -= REPAIRS_POINTS
+            repairs_timer = 90
+            hp = hp + REPAIRS_HEALTH
+            repairs_report = "Repairs completed!"
+            if hp > 100:
+                hp = 100
+        if repairs_timer > 0:
+            repairs_timer -= 1
+        else:
+            repairs_report = ''
+        
+        if hp < 20:
+            hp_color = (255,0,0)
+        elif hp < 50:
+            hp_color = (255,255,0)
+        elif hp < 75:
+            hp_color = (255,255,255)
+        elif hp < 101:
+            hp_color = (0, 255, 0)
 
         score_text = font.render(f'Rebel Scum Destroyed: {score}', True, (255, 255, 0))
-        hp_text = font.render(f'HP: {hp}', True, (0, 255, 0))
+        hp_text = font.render(f'HP: {hp}', True, hp_color)
+        laser_text = font.render( "Turbolasers", True, laser_status)
+        radio_text = font.render(radio_call, True, (0, 255, 255))
+        repairs_text = font.render(repairs_report, True, (200, 200, 200))
+
         screen.blit(score_text, (10, 10))
         screen.blit(hp_text, (10, HEIGHT - 30))
+        screen.blit(repairs_text, (10, HEIGHT - 50))
+        screen.blit(laser_text, (10, HEIGHT - 70))
+        screen.blit(radio_text, (10,40) )
 
         pygame.display.flip()
 
@@ -244,6 +360,7 @@ def show_game_over(score):
         screen.blit(entry, (WIDTH // 2 - 20, HEIGHT // 2 + 20))
         pygame.display.flip()
 def show_title_screen():
+    global volume
     pygame.font.init()
     font = pygame.font.SysFont("consolas", 20)
     title_font = pygame.font.SysFont("consolas", 36)
@@ -252,15 +369,25 @@ def show_title_screen():
     scroll_speed = 0.5
 
     storyline = [
-        "You are the commander of one of the last surviving Imperial",
-        "Star Destroyers.",
-        "After the fall of the Empire, chaos reigns across the galaxy.",
+        "You are the commander of one of the last",
+        "surviving Imperial Star Destroyers.",
+        "After the fall of the Empire, chaos reigns",
+        "across the galaxy.",
         "Rebel factions swarm the outer rim.",
-        "Your loyal crew, defying tradition, name your ship the NIGHTFIRE.",
+        "Your loyal crew, defying tradition, name your ship",
+        "",
+        "     THE NIGHTFIRE",
+        "",
         "Your mission: hold the line, reclaim order,",
         "and remind them... the Empire never truly dies.",
         "",
-        "Press ENTER to begin."
+        "Press ENTER to begin.",
+        "P to Pause.",
+        "- to Lower volume. = to Raise volume.",
+        "ALT-F4 to Quit.",
+        "Every " + str(REPAIRS_POINTS) + " kills heals " + str(REPAIRS_HEALTH) + " hp",
+        "and will improve ship performance ",
+
     ]
 
     def load_scores():
@@ -272,6 +399,7 @@ def show_title_screen():
         return lines[::-1]
 
     pygame.mixer.music.load('assets/saphire.mp3')
+    pygame.mixer.music.set_volume(volume)
     pygame.mixer.music.play(-1)
 
     clock = pygame.time.Clock()
@@ -280,6 +408,16 @@ def show_title_screen():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_MINUS:
+                volume = volume - .05
+                if volume < 0:
+                    volume = 0
+                pygame.mixer.music.set_volume(volume)
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_EQUALS:
+                volume = volume + .05
+                if volume > 1:
+                    volume = 1
+                pygame.mixer.music.set_volume(volume)
             if event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN:
                 return
 
@@ -294,15 +432,15 @@ def show_title_screen():
         for line in storyline:
             text = font.render(line, True, (255, 255, 0))
             screen.blit(text, (50, int(y)))
-            y += 30
-        if scroll_y > 100:
+            y += 28
+        if scroll_y > 80:
             scroll_y -= scroll_speed
 
         scores = load_scores()
-        screen.blit(score_font.render("Top Scores", True, (180, 0, 255)), (WIDTH - 200, HEIGHT - 160))
+        screen.blit(score_font.render("Top Scores", True, (180, 0, 255)), (WIDTH - 120, HEIGHT - 160))
         for i, score_line in enumerate(scores):
             s_text = score_font.render(score_line, True, (180, 0, 255))
-            screen.blit(s_text, (WIDTH - 200, HEIGHT - 130 + i * 25))
+            screen.blit(s_text, (WIDTH - 120, HEIGHT - 130 + i * 25))
 
         pygame.display.flip()
         clock.tick(60)
