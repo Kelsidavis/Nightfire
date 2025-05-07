@@ -7,7 +7,7 @@ pygame.init()
 
 volume = .5
 
-WIDTH, HEIGHT = 800, 600
+WIDTH, HEIGHT = 1280, 720
 FPS = 60
 STAR_COUNT = 200
 THRUST = 0.1
