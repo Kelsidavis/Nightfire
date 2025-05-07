@@ -20,6 +20,8 @@ STARTING_HP = 20
 REPAIRS_POINTS = 10
 # How many HP each repair cycle
 REPAIRS_HEALTH = 10
+# How many points before capital ships spawn in
+CAPITAL_SPAWN_SCORE = 20
 
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Nightfire: The Last Command")
@@ -29,26 +31,57 @@ font = pygame.font.SysFont("consolas", 24)
 ship_orig = pygame.image.load("assets/ship.png").convert_alpha()
 ship_orig = pygame.transform.scale(ship_orig, (60, 60))
 enemy_scale = (25, 25)
-ywing_img = pygame.transform.scale(pygame.image.load("assets/ywing.png").convert_alpha(), enemy_scale)
-xwing_img = pygame.transform.scale(pygame.image.load("assets/xwing.png").convert_alpha(), enemy_scale)
-awing_img = pygame.transform.scale(pygame.image.load("assets/awing.png").convert_alpha(), enemy_scale)
+corvette_scale = (40,40)
+frigate_scale = (50,50)
+cruiser_scale = (75,75)
 
-ywing_img = pygame.transform.rotate(ywing_img, 180)
-xwing_img = pygame.transform.rotate(xwing_img, 180)
+awing_img = pygame.transform.scale(pygame.image.load("assets/awing.png").convert_alpha(), enemy_scale)
+xwing_img = pygame.transform.scale(pygame.image.load("assets/xwing.png").convert_alpha(), enemy_scale)
+ywing_img = pygame.transform.scale(pygame.image.load("assets/ywing.png").convert_alpha(), enemy_scale)
+# reuse wing images until capital images available
+corvette_img = pygame.transform.scale(pygame.image.load("assets/awing.png").convert_alpha(), corvette_scale)
+frigate_img  = pygame.transform.scale(pygame.image.load("assets/xwing.png").convert_alpha(), frigate_scale)
+cruiser_img  = pygame.transform.scale(pygame.image.load("assets/ywing.png").convert_alpha(), cruiser_scale)
+
 awing_img = pygame.transform.rotate(awing_img, 180)
+xwing_img = pygame.transform.rotate(xwing_img, 180)
+ywing_img = pygame.transform.rotate(ywing_img, 180)
+corvette_img = pygame.transform.rotate(corvette_img, 180)
+frigate_img  = pygame.transform.rotate( frigate_img, 180)
+cruiser_img  = pygame.transform.rotate( cruiser_img, 180)
+
+
 A_WING = 0
 X_WING = 1
 Y_WING = 2
 enemy_types =         [A_WING, X_WING, Y_WING]
+enemy_scale =         [enemy_scale,enemy_scale,enemy_scale]
 enemy_minspeed =      [  2.25,      1,     .5]
 enemy_maxspeed =      [   3.5,      2,      1]
 enemy_fire_interval = [    60,     45,     90]
 enemy_laser_speed =   [    12,      6,      4]
 enemy_laser_damage =  [     2,      4,      8]
-enemy_squadrons    =   ['Blue',  'Red', 'Gold']
+enemy_squadrons    =   [['Blue'],  ['Red'], ['Gold']]
+enemy_pilots = [' Leader, no!', ' One under fire!', ' Two losing integrity!', ' Three watch those turbolasers!', ' Four Ahehghghehhgh!', ' Five they came from behind!']
 enemy_laser_color =   [(255,255,50), (255,50,50), (150, 150, 255)]
 enemy_img = [awing_img, xwing_img, ywing_img]
-enemy_pilots = [' Leader, no!', ' One under fire!', ' Two losing integrity!', ' Three watch those turbolasers!', ' Four Ahehghghehhgh!', ' Five they came from behind!']
+
+CORVETTE = 0
+FRIGATE  = 1
+CRUISER  = 2
+capital_types =         [ CORVETTE,  FRIGATE, CRUISER]
+capital_scale =         [corvette_scale,frigate_scale,cruiser_scale]
+capital_health =        [        3,        6,      12]
+capital_minspeed =      [      1.1,      .75,     .25]
+capital_maxspeed =      [      2.2,      1.5,     1.0]
+capital_fire_interval = [       30,       45,      60]
+capital_laser_speed   = [        8,        6,       4]
+capital_laser_damage  = [        2,        4,       8]
+capital_squadrons     = [['TANTIVE IV', 'LIBERATOR', 'CANDOR', 'THUNDERSTRIKE'], ['VANGUARD', 'REDEMPTION', 'OPPORTUNITY', 'REMEMBRANCE'], ['LIBERTY', 'HOME ONE', 'RADDUS', 'PURGILL']]
+capital_pilots = [' taking severe damage!', ' under heavy fire!', ' venting atmosphere!', ' have lost main engines!', ' shields are down!', ' lost manuvering thrusters!', ' bridge has been destroyed!']
+capital_laser_color =   [(255,255,50), (255,50,50), (150, 150, 255)]
+capital_img = [corvette_img, frigate_img, cruiser_img]
+
 ship_world_x, ship_world_y = 0, 0
 ship_angle = 0
 vel_x, vel_y = 0, 0
@@ -62,11 +95,14 @@ enemy_lasers = []
 enemies = []
 # Start with some enemies right off
 enemy_spawn_timer = 300
+capital_spawn_timer = 0
 
 class EnemyShip:
     def __init__(self):
         self.type = random.choice(enemy_types)
-        squadron = enemy_squadrons[self.type]
+        self.scale = enemy_scale[self.type]
+        self.hitbox = .5*(self.scale[0]**2 + self.scale[1]**2)**.5
+        squadron = random.choice(enemy_squadrons[self.type])
         pilot = random.choice(enemy_pilots)
         self.name = squadron + pilot
         self.image = enemy_img[self.type]
@@ -74,14 +110,25 @@ class EnemyShip:
         self.y = ship_world_y - HEIGHT - random.randint(60, 300)
         self.speed = random.uniform(enemy_minspeed[self.type], enemy_maxspeed[self.type])
         self.exploding = False
+        self.damaged = False
+        self.damaged_x = 0
+        self.damaged_y = 0
         self.timer = 0
         self.fire_timer = random.randint(30, enemy_fire_interval[self.type])
+        self.laser_speed = enemy_laser_speed
+        self.laser_color = enemy_laser_color
+        self.laser_damage = enemy_laser_damage
+        self.health = 1
 
     def update(self):
         if self.exploding:
             self.timer -= 1
             return self.timer > 0
         else:
+            if self.damaged:
+                self.timer_damaged -= 1
+                if self.timer_damaged < 0:
+                    self.damaged = False
             self.y += self.speed
             self.fire_timer -= 1
             if self.fire_timer <= 0:
@@ -101,18 +148,46 @@ class EnemyShip:
             "x": self.x + self.image.get_width() // 2,
             "y": self.y + self.image.get_height(),
             "angle": angle,
-            "laser_speed": enemy_laser_speed[self.type],
-            "color" : enemy_laser_color[self.type],
-            "damage" : enemy_laser_damage[self.type],
+            "laser_speed": self.laser_speed[self.type],
+            "color" : self.laser_color[self.type],
+            "damage" : self.laser_damage[self.type],
         })
 
     def draw(self, surface, offset_x, offset_y):
+        cx = int(self.x - offset_x)
+        cy = int(self.y - offset_y)
         if self.exploding:
-            cx = int(self.x - offset_x)
-            cy = int(self.y - offset_y)
-            pygame.draw.circle(surface, (255, 0, 0), (cx, cy), 20)
+            pygame.draw.circle(surface, (255, 0, 0), (cx + self.scale[0]/2, cy + self.scale[1]/2), self.hitbox*.75)
         else:
             surface.blit(self.image, (self.x - offset_x, self.y - offset_y))
+            if self.damaged:
+                pygame.draw.circle(surface, (255, 255, 0), (cx + self.damaged_x + self.scale[0]/2, cy + self.damaged_y + self.scale[1]/2), 10)
+            # pygame.draw.circle(surface, (0,255,0), (cx, cy), 5) # debug, top left of sprite
+            # pygame.draw.circle(surface, (0,0,255), (cx + self.scale[0]/2, cy + self.scale[1]/2), 5) # debug, center of sprite
+
+class CapitalShip(EnemyShip):
+    def __init__(self):        
+        self.type = random.choice(capital_types)
+        self.scale = capital_scale[self.type]
+        self.hitbox = .45 * (self.scale[0]**2 + self.scale[1]**2)**.5        
+        squadron = random.choice(capital_squadrons[self.type])
+        pilot = random.choice(capital_pilots)
+        self.name = squadron + pilot
+        self.image = capital_img[self.type]
+        self.x = ship_world_x + random.randint(-WIDTH//2, WIDTH//2)
+        self.y = ship_world_y - HEIGHT - random.randint(60, 300)
+        self.speed = random.uniform(capital_minspeed[self.type], capital_maxspeed[self.type])
+        self.exploding = False
+        self.damaged = False
+        self.damaged_x = 0
+        self.damaged_y = 0        
+        self.timer = 0
+        self.timer_damaged = 0
+        self.fire_timer = random.randint(30, capital_fire_interval[self.type])
+        self.laser_speed = capital_laser_speed
+        self.laser_color = capital_laser_color
+        self.laser_damage = capital_laser_damage
+        self.health = capital_health[self.type]
 
 def laser_turrets(hp):
     if hp < 15:
@@ -146,7 +221,7 @@ def laser_recycle(hp):
 
 def run_game():
     paused = False
-    global ship_world_x, ship_world_y, vel_x, vel_y, ship_angle, score, hp, enemy_spawn_timer
+    global ship_world_x, ship_world_y, vel_x, vel_y, ship_angle, score, hp, enemy_spawn_timer, capital_spawn_timer
     running = True
     radio_call = ''
     radio_call_timer = 0
@@ -261,31 +336,48 @@ def run_game():
         current_max_enemies = max(5, 5 * (2 ** (score // 10)))
         # Enemies spawn every 30 ticks until the first 20 are killed, then they spawn faster and faster
         current_enemy_timer = min(30, 60 * (2 ** ( (0-current_max_enemies)/20)))
-        # but no faster than every 5 ticks (about 70 kills)
+        current_capital_timer = min(120, 480 * (2 ** ( (0-current_max_enemies)/10)))
+        # but no faster than every 5 ticks (about 70 kills), 10 ticks for capitals
         current_enemy_timer = max(current_enemy_timer, 5)
+        current_capital_timer = max(current_capital_timer, 10)
         enemy_spawn_timer += 1
+        if score > CAPITAL_SPAWN_SCORE:
+            capital_spawn_timer += 1
         if enemy_spawn_timer > current_enemy_timer and len(non_exploding_enemies) < current_max_enemies:
             enemies.append(EnemyShip())
             enemy_spawn_timer = enemy_spawn_timer - current_enemy_timer
+        if capital_spawn_timer > current_capital_timer and len(non_exploding_enemies) < (current_max_enemies + 5):
+            enemies.append(CapitalShip())
+            capital_spawn_timer = capital_spawn_timer - current_capital_timer
 
         for enemy in enemies[:]:
             if not enemy.update():
                 enemies.remove(enemy)
                 continue
-            ex = enemy.x
-            ey = enemy.y
+            # Offset for center of sprite
+            ex = enemy.x + (enemy.scale[0]/2)
+            ey = enemy.y + (enemy.scale[1]/2)
+
             for laser in lasers[:]:
                 dx = laser['x'] - ex
                 dy = laser['y'] - ey
-                if math.hypot(dx, dy) < 20 and not enemy.exploding:
-                    enemy.exploding = True
-                    enemy.timer = 30
+                if math.hypot(dx, dy) < enemy.hitbox and not enemy.exploding:
+                    enemy.health -= 1
+                    enemy.damaged = True
+                    enemy.timer_damaged = 20
+                    enemy.damaged_x = dx
+                    enemy.damaged_y = dy
                     lasers.remove(laser)
                     score += 1
                     repairs_counter += 1
-                    radio_call = enemy.name
-                    radio_call_timer = 90
-                    break
+                    if enemy.health == 0:
+                        enemy.damaged = False
+                        enemy.timer_damaged = 0
+                        enemy.exploding = True
+                        enemy.timer = 30
+                        radio_call = enemy.name
+                        radio_call_timer = 90
+                        break
             enemy.draw(screen, offset_x, offset_y)
         if radio_call_timer > 0:
             radio_call_timer -= 1
