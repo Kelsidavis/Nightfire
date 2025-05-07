@@ -15,7 +15,7 @@ FRICTION = 0.99
 ROTATE_SPEED = 3
 LASER_SPEED = 15
 SPRITE_OFFSET = 90
-STARTING_HP = 20
+STARTING_HP = 50
 # How many points to get repairs
 REPAIRS_POINTS = 10
 # How many HP each repair cycle
