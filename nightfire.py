@@ -38,10 +38,9 @@ cruiser_scale = (75,75)
 awing_img = pygame.transform.scale(pygame.image.load("assets/awing.png").convert_alpha(), enemy_scale)
 xwing_img = pygame.transform.scale(pygame.image.load("assets/xwing.png").convert_alpha(), enemy_scale)
 ywing_img = pygame.transform.scale(pygame.image.load("assets/ywing.png").convert_alpha(), enemy_scale)
-# reuse wing images until capital images available
-corvette_img = pygame.transform.scale(pygame.image.load("assets/awing.png").convert_alpha(), corvette_scale)
-frigate_img  = pygame.transform.scale(pygame.image.load("assets/xwing.png").convert_alpha(), frigate_scale)
-cruiser_img  = pygame.transform.scale(pygame.image.load("assets/ywing.png").convert_alpha(), cruiser_scale)
+corvette_img = pygame.transform.scale(pygame.image.load("assets/corvette.png").convert_alpha(), corvette_scale)
+frigate_img  = pygame.transform.scale(pygame.image.load("assets/frigate.png").convert_alpha(), frigate_scale)
+cruiser_img  = pygame.transform.scale(pygame.image.load("assets/cruiser.png").convert_alpha(), cruiser_scale)
 
 awing_img = pygame.transform.rotate(awing_img, 180)
 xwing_img = pygame.transform.rotate(xwing_img, 180)
